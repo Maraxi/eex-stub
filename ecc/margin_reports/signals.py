@@ -1,9 +1,10 @@
 import logging
 
+from django.core.mail import send_mass_mail
 from django.db.models import Sum
 from django.db.models.signals import post_save
 from django.dispatch import receiver
-from margin_reports.models import EndofDay, Intraday
+from margin_reports.models import EndofDay, ErrorEmailRecipients, Intraday
 
 
 @receiver(post_save, sender=Intraday)
@@ -44,7 +45,7 @@ def check_intraday(sender, **kwargs):
 
     if ci050.Margin + sumofpreviousintraday < last_cc050:
         message = f"First CI050 report of the day {ci050=} does not cover extra margins of last cc050 report {last_cc050=}"
-        handleMarginError(message)
+        handleMarginError(message, ci050.account)
 
 
 @receiver(post_save, sender=EndofDay)
@@ -63,7 +64,7 @@ def check_startofday(sender, **kwargs):
     )
     if intraday_entries.aggregate(Sum("Margin"))["Margin__sum"] > cc050.Margin:
         message = f"CC050 report of the day {cc050=} does not cover margins of the current day {intraday_entries=}"
-        handleMarginError(message)
+        handleMarginError(message, cc050.account)
 
 
 def isSurveiled(report):
@@ -72,6 +73,12 @@ def isSurveiled(report):
     return surveilance.__getattribute__(report.Margin_Class)
 
 
-def handleMarginError(message):
+def handleMarginError(message, account):
     logger = logging.getLogger("MarginLogger")
     logger.error(message)
+
+    targets = ErrorEmailRecipients.objects.filter(Account=account)
+    datatuple = (
+        ("MarginError", message, "margin_checker@exx.com", target) for target in targets
+    )
+    send_mass_mail(datatuple)
