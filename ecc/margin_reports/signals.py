@@ -1,3 +1,5 @@
+import logging
+
 from django.db.models import Sum
 from django.db.models.signals import post_save
 from django.dispatch import receiver
@@ -41,8 +43,8 @@ def check_intraday(sender, **kwargs):
     )["Margin__sum"]
 
     if ci050.Margin + sumofpreviousintraday < last_cc050:
-        # TODO Handle Error
-        print("Error")
+        message = f"First CI050 report of the day {ci050=} does not cover extra margins of last cc050 report {last_cc050=}"
+        handleMarginError(message)
 
 
 @receiver(post_save, sender=EndofDay)
@@ -60,11 +62,16 @@ def check_startofday(sender, **kwargs):
         Report_Date=cc050.Report_Date,
     )
     if intraday_entries.aggregate(Sum("Margin"))["Margin__sum"] > cc050.Margin:
-        # TODO Handle Error
-        print("Error")
+        message = f"CC050 report of the day {cc050=} does not cover margins of the current day {intraday_entries=}"
+        handleMarginError(message)
 
 
 def isSurveiled(report):
     """Look up serveilance in the MarginClassSurveilance table."""
     surveilance = report.account.marginclasssurveilance
     return surveilance.__getattribute__(report.Margin_Class)
+
+
+def handleMarginError(message):
+    logger = logging.getLogger("MarginLogger")
+    logger.error(message)
